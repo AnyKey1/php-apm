@@ -1,0 +1,25 @@
+# Don't commit test data or logs
+test/*.log
+*.log
+
+# Don't commit Elasticsearch data
+elasticsearch-data/
+
+# Don't commit Docker volumes
+.docker-data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Compiled extension (built inside Docker)
+modules/
+*.lo
+*.la
+.libs/

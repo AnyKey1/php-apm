@@ -35,6 +35,8 @@ PHP_ARG_ENABLE(statsd, enable support for statsd,
 [  --enable-statsd         Enable statsd support], yes, no)
 PHP_ARG_ENABLE(socket, enable support for socket,
 [  --enable-socket         Enable socket support], yes, no)
+PHP_ARG_ENABLE(elasticsearch, enable support for elasticsearch,
+[  --enable-elasticsearch  Enable elasticsearch support], yes, no)
 PHP_ARG_WITH(debugfile, enable the debug file,
 [  --with-debugfile=[FILE]   Location of debugging file (/tmp/apm.debug by default)], no, no)
 PHP_ARG_WITH(defaultdb, set default sqlite3 default DB path,
@@ -199,6 +201,43 @@ if test "$PHP_APM" != "no"; then
     AC_DEFINE(APM_DRIVER_SOCKET, 1, [activate socket driver])
   fi
 
-  PHP_NEW_EXTENSION(apm, apm.c backtrace.c $sqlite3_driver $mysql_driver $statsd_driver $socket_driver, $ext_shared)
+  if test "$PHP_ELASTICSEARCH" != "no"; then
+    elasticsearch_driver="driver_elasticsearch.c"
+    AC_DEFINE(APM_DRIVER_ELASTICSEARCH, 1, [activate elasticsearch driver])
+    
+    dnl Check for libcurl
+    AC_MSG_CHECKING([for libcurl])
+    if test -z "$PKG_CONFIG"; then
+      AC_PATH_PROG(PKG_CONFIG, pkg-config, no)
+    fi
+    
+    if test "$PKG_CONFIG" != "no" && $PKG_CONFIG --exists libcurl; then
+      CURL_CFLAGS=`$PKG_CONFIG --cflags libcurl`
+      CURL_LIBS=`$PKG_CONFIG --libs libcurl`
+      AC_MSG_RESULT([found via pkg-config])
+      PHP_EVAL_LIBLINE($CURL_LIBS, APM_SHARED_LIBADD)
+      PHP_EVAL_INCLINE($CURL_CFLAGS)
+    else
+      AC_MSG_RESULT([checking manually])
+      for i in /usr/local /usr; do
+        if test -f $i/include/curl/curl.h; then
+          CURL_DIR=$i
+          AC_MSG_RESULT([found in $i])
+          break
+        fi
+      done
+      
+      if test -z "$CURL_DIR"; then
+        AC_MSG_ERROR([libcurl not found. Please install libcurl development package (e.g., libcurl4-openssl-dev)])
+      fi
+      
+      PHP_ADD_INCLUDE($CURL_DIR/include)
+      PHP_ADD_LIBRARY_WITH_PATH(curl, $CURL_DIR/lib, APM_SHARED_LIBADD)
+    fi
+    
+    AC_DEFINE(HAVE_CURL,1,[libcurl found and included])
+  fi
+
+  PHP_NEW_EXTENSION(apm, apm.c backtrace.c $sqlite3_driver $mysql_driver $statsd_driver $socket_driver $elasticsearch_driver, $ext_shared)
   PHP_SUBST(APM_SHARED_LIBADD)
 fi

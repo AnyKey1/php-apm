@@ -339,6 +339,35 @@ ZEND_BEGIN_MODULE_GLOBALS(apm)
 	apm_event_entry *socket_events;
 	apm_event_entry **socket_last_event;
 #endif
+#ifdef APM_DRIVER_ELASTICSEARCH
+	/* Boolean controlling whether the driver is active or not */
+	zend_bool elasticsearch_enabled;
+	/* Boolean controlling the collection of stats */
+	zend_bool elasticsearch_stats_enabled;
+	/* Control which exceptions to collect */
+	long elasticsearch_exception_mode;
+	/* driver error reporting */
+	int elasticsearch_error_reporting;
+	/* Option to process silenced events */
+	zend_bool elasticsearch_process_silenced_events;
+	/* Elasticsearch host */
+	char *elasticsearch_host;
+	/* Elasticsearch port */
+	unsigned int elasticsearch_port;
+	/* Elasticsearch index */
+	char *elasticsearch_index;
+	/* Elasticsearch username (optional) */
+	char *elasticsearch_username;
+	/* Elasticsearch password (optional) */
+	char *elasticsearch_password;
+	/* Batch sending configuration */
+	long elasticsearch_batch_size;
+	long elasticsearch_batch_timeout;
+	/* Batch buffer */
+	smart_str elasticsearch_buffer;
+	int elasticsearch_buffer_count;
+	time_t elasticsearch_buffer_start_time;
+#endif
 ZEND_END_MODULE_GLOBALS(apm)
 
 ZEND_EXTERN_MODULE_GLOBALS(apm)

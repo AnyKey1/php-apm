@@ -53,6 +53,9 @@
 #ifdef APM_DRIVER_SOCKET
 # include "driver_socket.h"
 #endif
+#ifdef APM_DRIVER_ELASTICSEARCH
+# include "driver_elasticsearch.h"
+#endif
 
 ZEND_DECLARE_MODULE_GLOBALS(apm);
 static PHP_GINIT_FUNCTION(apm);
@@ -242,6 +245,33 @@ PHP_INI_BEGIN()
 	/* process silenced events? */
 	STD_PHP_INI_BOOLEAN("apm.socket_process_silenced_events", "1", PHP_INI_PERDIR, OnUpdateBool, socket_process_silenced_events, zend_apm_globals, apm_globals)
 #endif
+
+#ifdef APM_DRIVER_ELASTICSEARCH
+	/* Boolean controlling whether the driver is active or not */
+	STD_PHP_INI_BOOLEAN("apm.elasticsearch_enabled", "0", PHP_INI_PERDIR, OnUpdateBool, elasticsearch_enabled, zend_apm_globals, apm_globals)
+	/* Boolean controlling the collection of stats */
+	STD_PHP_INI_BOOLEAN("apm.elasticsearch_stats_enabled", "1", PHP_INI_ALL, OnUpdateBool, elasticsearch_stats_enabled, zend_apm_globals, apm_globals)
+	/* Control which exceptions to collect (0: none exceptions collected, 1: collect uncaught exceptions (default), 2: collect ALL exceptions) */
+	STD_PHP_INI_ENTRY("apm.elasticsearch_exception_mode","1", PHP_INI_PERDIR, OnUpdateLongGEZero, elasticsearch_exception_mode, zend_apm_globals, apm_globals)
+	/* error_reporting of the driver */
+	STD_PHP_INI_ENTRY("apm.elasticsearch_error_reporting", NULL, PHP_INI_ALL, OnUpdateAPMelasticsearchErrorReporting, elasticsearch_error_reporting, zend_apm_globals, apm_globals)
+	/* Elasticsearch host */
+	STD_PHP_INI_ENTRY("apm.elasticsearch_host", "localhost", PHP_INI_PERDIR, OnUpdateString, elasticsearch_host, zend_apm_globals, apm_globals)
+	/* Elasticsearch port */
+	STD_PHP_INI_ENTRY("apm.elasticsearch_port", "9200", PHP_INI_PERDIR, OnUpdateLong, elasticsearch_port, zend_apm_globals, apm_globals)
+	/* Elasticsearch index */
+	STD_PHP_INI_ENTRY("apm.elasticsearch_index", "apm-logs", PHP_INI_PERDIR, OnUpdateString, elasticsearch_index, zend_apm_globals, apm_globals)
+	/* Elasticsearch username (optional) */
+	STD_PHP_INI_ENTRY("apm.elasticsearch_username", "", PHP_INI_PERDIR, OnUpdateString, elasticsearch_username, zend_apm_globals, apm_globals)
+	/* Elasticsearch password (optional) */
+	STD_PHP_INI_ENTRY("apm.elasticsearch_password", "", PHP_INI_PERDIR, OnUpdateString, elasticsearch_password, zend_apm_globals, apm_globals)
+	/* Batch size - number of messages to buffer before sending */
+	STD_PHP_INI_ENTRY("apm.elasticsearch_batch_size", "10", PHP_INI_PERDIR, OnUpdateLong, elasticsearch_batch_size, zend_apm_globals, apm_globals)
+	/* Batch timeout in seconds - maximum time to wait before sending buffered messages */
+	STD_PHP_INI_ENTRY("apm.elasticsearch_batch_timeout", "5", PHP_INI_PERDIR, OnUpdateLong, elasticsearch_batch_timeout, zend_apm_globals, apm_globals)
+	/* process silenced events? */
+	STD_PHP_INI_BOOLEAN("apm.elasticsearch_process_silenced_events", "1", PHP_INI_PERDIR, OnUpdateBool, elasticsearch_process_silenced_events, zend_apm_globals, apm_globals)
+#endif
 PHP_INI_END()
 
 static PHP_GINIT_FUNCTION(apm)
@@ -272,6 +302,10 @@ static PHP_GINIT_FUNCTION(apm)
 #endif
 #ifdef APM_DRIVER_SOCKET
 	*next = apm_driver_socket_create();
+	next = &(*next)->next;
+#endif
+#ifdef APM_DRIVER_ELASTICSEARCH
+	*next = apm_driver_elasticsearch_create();
 	next = &(*next)->next;
 #endif
 }
