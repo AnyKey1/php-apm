@@ -1,0 +1,21 @@
+FROM php:7.4-apache
+
+RUN apt-get update && apt-get install -y \
+    git \
+    autoconf \
+    build-essential \
+    libcurl4-openssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . /tmp/php-apm
+WORKDIR /tmp/php-apm
+
+RUN phpize \
+    && ./configure \
+        --enable-apm \
+        --without-sqlite3 \
+        --without-mysql \
+        --disable-statsd \
+        --disable-socket \
+        --enable-elasticsearch \
+    && make

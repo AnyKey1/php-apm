@@ -1,0 +1,3 @@
+PHP 5.4.45-0+deb7u14 (cli) (built: May  9 2018 16:47:00) 
+Copyright (c) 1997-2014 The PHP Group
+Zend Engine v2.4.0, Copyright (c) 1998-2014 Zend Technologies

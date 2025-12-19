@@ -1,0 +1,20 @@
+# Use old Debian for GLIBC compatibility
+FROM debian:wheezy
+
+# Configure old repositories
+RUN echo "deb http://archive.debian.org/debian wheezy main" > /etc/apt/sources.list &&     echo "deb http://archive.debian.org/debian-security wheezy/updates main" >> /etc/apt/sources.list
+
+# Install PHP and build dependencies
+RUN apt-get update &&     DEBIAN_FRONTEND=noninteractive apt-get install -y     php5-dev     php5-cli     git     autoconf     build-essential     libcurl4-openssl-dev     curl     --force-yes     && rm -rf /var/lib/apt/lists/*
+
+# Copy source code
+COPY . /tmp/php-apm
+WORKDIR /tmp/php-apm
+
+# Build extension
+RUN phpize &&     ./configure         --enable-apm         --without-sqlite3         --without-mysql         --disable-statsd         --disable-socket         --enable-elasticsearch  --with-debugfile=/tmp/apm.log && make && make install
+
+# Copy the built extension to output
+RUN mkdir -p /output &&     cp $(php-config --extension-dir)/apm.so /output/apm.so &&     php -v > /output/php-version.txt &&     ldd $(php-config --extension-dir)/apm.so > /output/dependencies.txt || true
+
+CMD ["cat", "/output/apm.so"]

@@ -52,6 +52,24 @@ services:
       - PHP_DISPLAY_ERRORS=1
       - PHP_ERROR_REPORTING=E_ALL
 
+  php-legacy:
+    build:
+      context: .
+      dockerfile: Dockerfile.build-legacy
+    container_name: apm-php53
+    ports:
+      - "8085:80"
+    volumes:
+      - ./test:/var/www/html
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - apm-network
+    environment:
+      - PHP_DISPLAY_ERRORS=1
+      - PHP_ERROR_REPORTING=E_ALL
+
 volumes:
   elasticsearch-data:
     driver: local
