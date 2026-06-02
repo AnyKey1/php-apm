@@ -242,6 +242,24 @@ PHP_INI_BEGIN()
 	/* process silenced events? */
 	STD_PHP_INI_BOOLEAN("apm.socket_process_silenced_events", "1", PHP_INI_PERDIR, OnUpdateBool, socket_process_silenced_events, zend_apm_globals, apm_globals)
 #endif
+
+#ifdef HAVE_CURL
+	  STD_PHP_INI_ENTRY("apm.elasticsearch_host", "localhost", PHP_INI_PERDIR, OnUpdateString, elasticsearch_host, zend_apm_globals, apm_globals)
+  STD_PHP_INI_ENTRY("apm.elasticsearch_port", "9200", PHP_INI_PERDIR, OnUpdateLong, elasticsearch_port, zend_apm_globals, apm_globals)
+  STD_PHP_INI_ENTRY("apm.elasticsearch_index", "php-apm", PHP_INI_PERDIR, OnUpdateString, elasticsearch_index, zend_apm_globals, apm_globals)
+  STD_PHP_INI_ENTRY("apm.elasticsearch_user", "", PHP_INI_PERDIR, OnUpdateString, elasticsearch_user, zend_apm_globals, apm_globals)
+  STD_PHP_INI_ENTRY("apm.elasticsearch_pass", "", PHP_INI_PERDIR, OnUpdateString, elasticsearch_pass, zend_apm_globals, apm_globals)
+  STD_PHP_INI_ENTRY("apm.elasticsearch_username", "", PHP_INI_PERDIR, OnUpdateString, elasticsearch_username, zend_apm_globals, apm_globals)
+  STD_PHP_INI_ENTRY("apm.elasticsearch_password", "", PHP_INI_PERDIR, OnUpdateString, elasticsearch_password, zend_apm_globals, apm_globals)
+  STD_PHP_INI_BOOLEAN("apm.elasticsearch_enabled", "0", PHP_INI_PERDIR, OnUpdateBool, elasticsearch_enabled, zend_apm_globals, apm_globals)
+  STD_PHP_INI_ENTRY("apm.elasticsearch_batch_size", "50", PHP_INI_PERDIR, OnUpdateLong, elasticsearch_batch_size, zend_apm_globals, apm_globals)
+  STD_PHP_INI_ENTRY("apm.elasticsearch_batch_timeout", "3", PHP_INI_PERDIR, OnUpdateLong, elasticsearch_batch_timeout, zend_apm_globals, apm_globals)
+  STD_PHP_INI_ENTRY("apm.elasticsearch_exception_mode", "1", PHP_INI_PERDIR, OnUpdateLongGEZero, elasticsearch_exception_mode, zend_apm_globals, apm_globals)
+  STD_PHP_INI_ENTRY("apm.elasticsearch_error_reporting", NULL, PHP_INI_ALL, OnUpdateAPMelasticsearchErrorReporting, elasticsearch_error_reporting, zend_apm_globals, apm_globals)
+  STD_PHP_INI_BOOLEAN("apm.elasticsearch_stats_enabled", "1", PHP_INI_PERDIR, OnUpdateBool, elasticsearch_stats_enabled, zend_apm_globals, apm_globals)
+  STD_PHP_INI_BOOLEAN("apm.elasticsearch_process_silenced_events", "1", PHP_INI_PERDIR, OnUpdateBool, elasticsearch_process_silenced_events, zend_apm_globals, apm_globals)
+#endif
+
 PHP_INI_END()
 
 static PHP_GINIT_FUNCTION(apm)
@@ -314,6 +332,10 @@ PHP_MINIT_FUNCTION(apm)
 
 	}
 
+	#ifdef HAVE_CURL
+		apm_driver_elasticsearch_minit(module_number TSRMLS_CC);
+	#endif
+
 	return SUCCESS;
 }
 
@@ -331,6 +353,10 @@ PHP_MSHUTDOWN_FUNCTION(apm)
 			}
 		}
 	}
+
+	#ifdef HAVE_CURL
+	apm_driver_elasticsearch_mshutdown(TSRMLS_C);
+	#endif
 
 	/* Restoring saved error callback function */
 	zend_error_cb = old_error_cb;
@@ -431,6 +457,14 @@ PHP_RSHUTDOWN_FUNCTION(apm)
 			}
 		}
 
+#ifdef HAVE_CURL
+	if (APM_G(elasticsearch_enabled)) {
+		apm_driver_elasticsearch_process_stats(TSRMLS_C);
+		apm_driver_elasticsearch_rshutdown(TSRMLS_C);
+	}
+#endif
+
+
 		driver_entry = APM_G(drivers);
 		while ((driver_entry = driver_entry->next) != NULL) {
 			if (driver_entry->driver.is_enabled(TSRMLS_C)) {
@@ -523,10 +557,20 @@ static void process_event(int event_type, int type, char * error_filename, uint 
 {
 	smart_str trace_str = {0};
 	apm_driver_entry * driver_entry;
+	char *trace_val = "";
 
 	if (APM_G(store_stacktrace)) {
 		append_backtrace(&trace_str TSRMLS_CC);
 		smart_str_0(&trace_str);
+#if PHP_VERSION_ID >= 70000
+		if (trace_str.s && trace_str.s->val) {
+			trace_val = trace_str.s->val;
+		}
+#else
+		if (trace_str.c) {
+			trace_val = trace_str.c;
+		}
+#endif
 	}
 
 	driver_entry = APM_G(drivers);
@@ -538,15 +582,17 @@ static void process_event(int event_type, int type, char * error_filename, uint 
 				error_filename,
 				error_lineno,
 				msg,
-#if PHP_VERSION_ID >= 70000
-				(APM_G(store_stacktrace) && trace_str.s && trace_str.s->val) ? trace_str.s->val : ""
-#else
-				(APM_G(store_stacktrace) && trace_str.c) ? trace_str.c : ""
-#endif
+				trace_val
 				TSRMLS_CC
 			);
 		}
 	}
+	#ifdef HAVE_CURL
+	if (APM_G(elasticsearch_enabled)) {
+		apm_driver_elasticsearch_process_event(type, error_filename, error_lineno, msg, trace_val TSRMLS_CC);
+	}
+	#endif
+
 	APM_DEBUG("Direct processing process_event loop end\n");
 
 	smart_str_free(&trace_str);

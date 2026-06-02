@@ -45,6 +45,12 @@
 	#include <mysql/mysql.h>
 #endif
 
+
+#ifdef HAVE_CURL
+	#include "driver_elasticsearch.h"
+#endif
+
+
 #ifdef PHP_WIN32
 #define PHP_APM_API __declspec(dllexport)
 #else
@@ -339,7 +345,34 @@ ZEND_BEGIN_MODULE_GLOBALS(apm)
 	apm_event_entry *socket_events;
 	apm_event_entry **socket_last_event;
 #endif
+
+#ifdef HAVE_CURL
+	char *elasticsearch_host;
+	long elasticsearch_port;
+	char *elasticsearch_index;
+	char *elasticsearch_user;
+	char *elasticsearch_pass;
+	zend_bool elasticsearch_enabled;
+
+	long elasticsearch_batch_size;
+	long elasticsearch_batch_timeout;
+	long elasticsearch_exception_mode;
+	int elasticsearch_error_reporting;
+	zend_bool elasticsearch_stats_enabled;
+	zend_bool elasticsearch_process_silenced_events;
+	char *elasticsearch_username;
+	char *elasticsearch_password;
+
+	smart_str elasticsearch_batch_buffer;
+	long elasticsearch_batch_count;
+	time_t elasticsearch_batch_start;
+#endif
+
+
 ZEND_END_MODULE_GLOBALS(apm)
+
+
+
 
 ZEND_EXTERN_MODULE_GLOBALS(apm)
 

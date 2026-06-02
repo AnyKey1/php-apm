@@ -103,6 +103,18 @@ if test "$PHP_APM" != "no"; then
     fi
   fi
 
+PHP_ARG_WITH(curl, for cURL support,
+[  --with-curl             Include cURL support for Elasticsearch driver])
+if test "$PHP_CURL" != "no"; then
+  CURL_CFLAGS=`pkg-config --cflags libcurl`
+  CURL_LIBS=`pkg-config --libs libcurl`
+  PHP_EVAL_INCLINE($CURL_CFLAGS)
+  PHP_EVAL_LIBLINE($CURL_LIBS, APM_SHARED_LIBADD)
+  AC_DEFINE(HAVE_CURL, 1, [Define to 1 if you have libcurl])
+  elasticsearch_driver="driver_elasticsearch.c"
+fi
+
+
   if test "$PHP_MYSQL" != "no"; then
     mysql_driver="driver_mysql.c"
     AC_DEFINE(APM_DRIVER_MYSQL, 1, [activate MySQL storage driver])
@@ -199,6 +211,6 @@ if test "$PHP_APM" != "no"; then
     AC_DEFINE(APM_DRIVER_SOCKET, 1, [activate socket driver])
   fi
 
-  PHP_NEW_EXTENSION(apm, apm.c backtrace.c $sqlite3_driver $mysql_driver $statsd_driver $socket_driver, $ext_shared)
+  PHP_NEW_EXTENSION(apm, apm.c backtrace.c $sqlite3_driver $mysql_driver $statsd_driver $socket_driver $elasticsearch_driver, $ext_shared)
   PHP_SUBST(APM_SHARED_LIBADD)
 fi
