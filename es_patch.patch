@@ -1,0 +1,205 @@
+--- a/config.m4
++++ b/config.m4
+@@ -15,6 +15,14 @@
+   PHP_NEW_EXTENSION(apm, apm.c driver_sqlite3.c driver_mysql.c driver_statsd.c driver_socket.c, $ext_shared)
+ fi
+ 
++dnl Check for libcurl
++PHP_ARG_WITH(curl, for cURL support,
++[  --with-curl             Include cURL support for Elasticsearch driver])
++if test "$PHP_CURL" != "no"; then
++  PKG_CHECK_MODULES([CURL], [libcurl])
++  PHP_EVAL_INCLINE($CURL_CFLAGS)
++  PHP_EVAL_LIBLINE($CURL_LIBS, APM_SHARED_LIBADD)
++  AC_DEFINE(HAVE_CURL, 1, [Define to 1 if you have libcurl])
++fi
++
+ dnl vim600: noet sw=4 ts=4 fdm=marker
+--- /dev/null
++++ b/driver_elasticsearch.c
+@@ -0,0 +1,100 @@
++#include "php_apm.h"
++#ifdef HAVE_CURL
++#include <curl/curl.h>
++
++ZEND_EXTERN_MODULE_GLOBALS(apm);
++
++static size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
++    return size * nmemb;
++}
++
++static int send_to_elasticsearch(const char *json TSRMLS_DC) {
++    CURL *curl;
++    CURLcode res;
++    char url[1024];
++    struct curl_slist *headers = NULL;
++    
++    if (!APM_G(elasticsearch_enabled)) return 0;
++    
++    snprintf(url, sizeof(url), "http://%s:%ld/%s/_doc/", 
++             APM_G(elasticsearch_host), APM_G(elasticsearch_port), APM_G(elasticsearch_index));
++
++    curl = curl_easy_init();
++    if (!curl) return 0;
++
++    headers = curl_slist_append(headers, "Content-Type: application/json");
++    curl_easy_setopt(curl, CURLOPT_URL, url);
++    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
++    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json);
++    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
++    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
++
++    if (APM_G(elasticsearch_user) && strlen(APM_G(elasticsearch_user)) > 0) {
++        char auth[512];
++        snprintf(auth, sizeof(auth), "%s:%s", APM_G(elasticsearch_user), APM_G(elasticsearch_pass));
++        curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
++        curl_easy_setopt(curl, CURLOPT_USERPWD, auth);
++    }
++
++    res = curl_easy_perform(curl);
++    curl_slist_free_all(headers);
++    curl_easy_cleanup(curl);
++    return (res == CURLE_OK) ? 1 : 0;
++}
++
++void apm_driver_elasticsearch_process_event(int type, char *error_filename, uint error_lineno, char *msg, char *trace TSRMLS_DC) {
++    char json[8192];
++    char timestamp[32];
++    time_t now;
++    struct tm *tm_info;
++    
++    time(&now);
++    tm_info = gmtime(&now);
++    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
++    
++    snprintf(json, sizeof(json),
++        "{\"@timestamp\":\"%s\",\"type\":\"error\",\"error_type\":%d,\"message\":\"%s\",\"file\":\"%s\",\"line\":%u,\"trace\":\"%s\",\"application\":\"%s\"}",
++        timestamp, type, msg ? msg : "", error_filename ? error_filename : "", error_lineno, trace ? trace : "", APM_G(application_id) ? APM_G(application_id) : "default");
++    
++    send_to_elasticsearch(json TSRMLS_CC);
++}
++
++void apm_driver_elasticsearch_process_stats(TSRMLS_D) {
++    char json[4096];
++    char timestamp[32];
++    time_t now;
++    struct tm *tm_info;
++    
++    time(&now);
++    tm_info = gmtime(&now);
++    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
++    
++    snprintf(json, sizeof(json),
++        "{\"@timestamp\":\"%s\",\"type\":\"stats\",\"memory_usage\":%ld,\"memory_peak\":%ld,\"application\":\"%s\"}",
++        timestamp, zend_memory_usage(0 TSRMLS_CC), zend_memory_peak_usage(0 TSRMLS_CC), APM_G(application_id) ? APM_G(application_id) : "default");
++    
++    send_to_elasticsearch(json TSRMLS_CC);
++}
++
++int apm_driver_elasticsearch_minit(int module_number TSRMLS_DC) {
++    curl_global_init(CURL_GLOBAL_ALL);
++    return SUCCESS;
++}
++
++int apm_driver_elasticsearch_mshutdown(TSRMLS_D) {
++    curl_global_cleanup();
++    return SUCCESS;
++}
++#endif
+--- /dev/null
++++ b/driver_elasticsearch.h
+@@ -0,0 +1,10 @@
++#ifndef DRIVER_ELASTICSEARCH_H
++#define DRIVER_ELASTICSEARCH_H
++
++#ifdef HAVE_CURL
++void apm_driver_elasticsearch_process_event(int type, char *error_filename, uint error_lineno, char *msg, char *trace TSRMLS_DC);
++void apm_driver_elasticsearch_process_stats(TSRMLS_D);
++int apm_driver_elasticsearch_minit(int module_number TSRMLS_DC);
++int apm_driver_elasticsearch_mshutdown(TSRMLS_D);
++#endif
++#endif
+--- a/php_apm.h
++++ b/php_apm.h
+@@ -45,6 +45,12 @@
+   char *socket_file;
+   zend_bool socket_enabled;
+   
++  char *elasticsearch_host;
++  long elasticsearch_port;
++  char *elasticsearch_index;
++  char *elasticsearch_user;
++  char *elasticsearch_pass;
++  zend_bool elasticsearch_enabled;
++  
+   char *application_id;
+   zend_bool store_ip;
+   zend_bool store_cookies;
+@@ -70,6 +76,7 @@
+ #include "driver_mysql.h"
+ #include "driver_statsd.h"
+ #include "driver_socket.h"
++#include "driver_elasticsearch.h"
+ 
+ #ifdef ZTS
+ #define APM_G(v) TSRMG(apm_globals_id, zend_apm_globals *, v)
+--- a/apm.c
++++ b/apm.c
+@@ -67,6 +67,12 @@
+   STD_PHP_INI_ENTRY("apm.socket_file", "/tmp/apm.sock", PHP_INI_PERDIR, OnUpdateString, socket_file, zend_apm_globals, apm_globals)
+   STD_PHP_INI_BOOLEAN("apm.socket_enabled", "0", PHP_INI_PERDIR, OnUpdateBool, socket_enabled, zend_apm_globals, apm_globals)
+   
++  STD_PHP_INI_ENTRY("apm.elasticsearch_host", "localhost", PHP_INI_PERDIR, OnUpdateString, elasticsearch_host, zend_apm_globals, apm_globals)
++  STD_PHP_INI_ENTRY("apm.elasticsearch_port", "9200", PHP_INI_PERDIR, OnUpdateLong, elasticsearch_port, zend_apm_globals, apm_globals)
++  STD_PHP_INI_ENTRY("apm.elasticsearch_index", "php-apm", PHP_INI_PERDIR, OnUpdateString, elasticsearch_index, zend_apm_globals, apm_globals)
++  STD_PHP_INI_ENTRY("apm.elasticsearch_user", "", PHP_INI_PERDIR, OnUpdateString, elasticsearch_user, zend_apm_globals, apm_globals)
++  STD_PHP_INI_ENTRY("apm.elasticsearch_pass", "", PHP_INI_PERDIR, OnUpdateString, elasticsearch_pass, zend_apm_globals, apm_globals)
++  STD_PHP_INI_BOOLEAN("apm.elasticsearch_enabled", "0", PHP_INI_PERDIR, OnUpdateBool, elasticsearch_enabled, zend_apm_globals, apm_globals)
++  
+   STD_PHP_INI_ENTRY("apm.application_id", "My application", PHP_INI_PERDIR, OnUpdateString, application_id, zend_apm_globals, apm_globals)
+   STD_PHP_INI_BOOLEAN("apm.store_ip", "1", PHP_INI_PERDIR, OnUpdateBool, store_ip, zend_apm_globals, apm_globals)
+   STD_PHP_INI_BOOLEAN("apm.store_cookies", "1", PHP_INI_PERDIR, OnUpdateBool, store_cookies, zend_apm_globals, apm_globals)
+@@ -120,6 +126,9 @@
+   if (APM_G(socket_enabled)) {
+      apm_driver_socket_minit(module_number TSRMLS_CC);
+   }
++#ifdef HAVE_CURL
++  apm_driver_elasticsearch_minit(module_number TSRMLS_CC);
++#endif
+ 
+   return SUCCESS;
+ }
+@@ -140,6 +149,9 @@
+   if (APM_G(socket_enabled)) {
+      apm_driver_socket_mshutdown(TSRMLS_C);
+   }
++#ifdef HAVE_CURL
++  apm_driver_elasticsearch_mshutdown(TSRMLS_C);
++#endif
+ 
+   UNREGISTER_INI_ENTRIES();
+ 
+@@ -190,6 +202,10 @@
+   if (APM_G(socket_enabled)) {
+      apm_driver_socket_process_event(type, error_filename, error_lineno, msg, trace TSRMLS_CC);
+   }
++#ifdef HAVE_CURL
++  if (APM_G(elasticsearch_enabled)) {
++     apm_driver_elasticsearch_process_event(type, error_filename, error_lineno, msg, trace TSRMLS_CC);
++  }
++#endif
+ }
+ 
+ void apm_error(int type, char *format, ...)
+@@ -273,6 +289,10 @@
+   if (APM_G(socket_enabled)) {
+      apm_driver_socket_process_stats(TSRMLS_C);
+   }
++#ifdef HAVE_CURL
++  if (APM_G(elasticsearch_enabled)) {
++     apm_driver_elasticsearch_process_stats(TSRMLS_C);
++  }
++#endif
+ 
+   return SUCCESS;
+ }

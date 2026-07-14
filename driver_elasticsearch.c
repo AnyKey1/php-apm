@@ -94,6 +94,7 @@ void apm_driver_elasticsearch_process_event(int type, char *error_filename, uint
     time_t now;
     struct tm *tm_info;
     int response_code = SG(sapi_headers).http_response_code;
+    const char *level;
     
     if (!APM_G(elasticsearch_enabled)) return;
     
@@ -103,13 +104,40 @@ void apm_driver_elasticsearch_process_event(int type, char *error_filename, uint
         response_code = 500;
     }
     
+    switch(type) {
+        case E_EXCEPTION:
+        case E_ERROR:
+        case E_PARSE:
+        case E_CORE_ERROR:
+        case E_COMPILE_ERROR:
+        case E_USER_ERROR:
+        case E_RECOVERABLE_ERROR:
+            level = "error";
+            break;
+        case E_WARNING:
+        case E_CORE_WARNING:
+        case E_COMPILE_WARNING:
+        case E_USER_WARNING:
+            level = "warning";
+            break;
+        case E_NOTICE:
+        case E_USER_NOTICE:
+        case E_STRICT:
+        case E_DEPRECATED:
+        case E_USER_DEPRECATED:
+            level = "notice";
+            break;
+        default:
+            level = "error";
+    }
+    
     time(&now);
     tm_info = gmtime(&now);
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", tm_info);
     
     snprintf(json, sizeof(json),
-        "{\"@timestamp\":\"%s\",\"type\":\"error\",\"error_type\":%d,\"message\":\"%s\",\"file\":\"%s\",\"line\":%u,\"trace\":\"%s\",\"application\":\"%s\",\"response_code\":%d}",
-        timestamp, type, msg ? msg : "", error_filename ? error_filename : "", error_lineno, trace ? trace : "", APM_G(application_id) ? APM_G(application_id) : "default", response_code);
+        "{\"@timestamp\":\"%s\",\"type\":\"error\",\"level\":\"%s\",\"error_type\":%d,\"message\":\"%s\",\"file\":\"%s\",\"line\":%u,\"trace\":\"%s\",\"application\":\"%s\",\"response_code\":%d}",
+        timestamp, level, type, msg ? msg : "", error_filename ? error_filename : "", error_lineno, trace ? trace : "", APM_G(application_id) ? APM_G(application_id) : "default", response_code);
     
     append_to_batch(json TSRMLS_CC);
 }
